@@ -256,64 +256,89 @@ class _TabScreenState extends State<TabScreen> {
         body: Column(
           children: [
             Expanded(
-              child:
-                  devices.isEmpty
-                      ? Center(child: Text("هیچ دستگاهی یافت نشد"))
-                      : ListView.builder(
-                        itemCount: devices.length,
-                        itemBuilder: (context, index) {
-                          final device = devices[index];
-                          return Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: InkWell(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder:
-                                        (context) => ManageDevice(
-                                          deviceId: device["deviceId"]!,
-                                        ),
-                                  ),
-                                );
-                              },
-                              child: Card(
-                                elevation: 5,
-                                color: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(15.0),
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: <Widget>[
-                                    Padding(
-                                      padding: const EdgeInsets.all(5.0),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.only(
-                                          topLeft: Radius.circular(15.0),
-                                          topRight: Radius.circular(15.0),
-                                        ),
-                                        child: Image.asset(
-                                          device["image"]!,
-                                          fit: BoxFit.cover,
-                                        ),
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: EdgeInsets.all(16.0),
-                                      child: Text(
-                                        device["name"]!,
-                                        style: TextStyle(fontSize: 16.0),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child:
+                      devices.isEmpty
+                          ? Center(
+                            child: Text(
+                              "هیچ دستگاهی یافت نشد",
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.grey,
                               ),
                             ),
-                          );
-                        },
-                      ),
+                          )
+                          : Wrap(
+                            spacing: 12.0, // فاصله افقی بین کارت‌ها
+                            runSpacing: 12.0, // فاصله عمودی بین سطرها
+                            alignment:
+                                WrapAlignment.start, // ترازبندی کارت‌ها از چپ
+                            children:
+                                devices.map((device) {
+                                  return SizedBox(
+                                    width:
+                                        MediaQuery.of(context).size.width *
+                                        0.28, // 28% عرض صفحه
+                                    child: InkWell(
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder:
+                                                (context) => ManageDevice(
+                                                  deviceId: device["deviceId"]!,
+                                                ),
+                                          ),
+                                        );
+                                      },
+                                      child: Card(
+                                        elevation: 4,
+                                        color: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12.0,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: <Widget>[
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.only(
+                                                topLeft: Radius.circular(12.0),
+                                                topRight: Radius.circular(12.0),
+                                              ),
+                                              child: Image.asset(
+                                                device["image"]!,
+                                                width: double.infinity,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            ),
+                                            Padding(
+                                              padding: const EdgeInsets.all(
+                                                8.0,
+                                              ),
+                                              child: Text(
+                                                device["name"]!,
+                                                style: TextStyle(
+                                                  fontSize: 14.0,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                                maxLines:
+                                                    2, // حداکثر دو خط برای متن
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                          ),
+                ),
+              ),
             ),
             Container(
               padding: EdgeInsets.all(16.0),
@@ -323,10 +348,22 @@ class _TabScreenState extends State<TabScreen> {
                 children: [
                   ElevatedButton(
                     onPressed: _sendLearnCommand,
+                    style: ElevatedButton.styleFrom(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
+                    ),
                     child: const Text("LEARN"),
                   ),
                   ElevatedButton(
                     onPressed: _sendTransCommand,
+                    style: ElevatedButton.styleFrom(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
+                    ),
                     child: const Text("TRANS"),
                   ),
                 ],
