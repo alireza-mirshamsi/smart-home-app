@@ -89,23 +89,33 @@ class _ManageDeviceState extends State<ManageDevice> {
   void _processReceivedMessage(String message) {
     // تحلیل پیام دریافتی برای شناسایی کلید
     if (message.startsWith("#") && message.endsWith("F")) {
-      RegExp regex = RegExp(r"#(\d)A(\d+)B");
+      RegExp regex = RegExp(r"#(\d)A(\d+)B6C(\d+)D7E\d+F");
       Match? match = regex.firstMatch(message);
       if (match != null) {
         String stateDigit = match.group(1)!; // وضعیت کلید (0 یا 1)
         int relayNumber = int.parse(match.group(2)!); // شماره کلید
+        String receivedDeviceId = match.group(3)!; // deviceId دریافتی
 
-        bool newState =
-            stateDigit == "1"; // اگر 1 باشد روشن، در غیر این صورت خاموش
+        // بررسی اینکه آیا پیام برای deviceId فعلی است
+        if (receivedDeviceId == widget.deviceId) {
+          bool newState =
+              stateDigit == "1"; // اگر 1 باشد روشن، در غیر این صورت خاموش
 
-        setState(() {
-          buttonStates[relayNumber] = newState; // به‌روزرسانی وضعیت کلید
-          mySmartDevices[relayNumber - 1][2] =
-              newState; // تغییر وضعیت در لیست دستگاه‌ها
-        });
+          setState(() {
+            buttonStates[relayNumber] = newState; // به‌روزرسانی وضعیت کلید
+            mySmartDevices[relayNumber - 1][2] =
+                newState; // تغییر وضعیت در لیست دستگاه‌ها
+          });
 
-        // ذخیره‌سازی وضعیت جدید
-        saveAllData();
+          // ذخیره‌سازی وضعیت جدید
+          saveAllData();
+        } else {
+          debugPrint(
+            "Message ignored: deviceId $receivedDeviceId does not match current deviceId ${widget.deviceId}",
+          );
+        }
+      } else {
+        debugPrint("Invalid message format: $message");
       }
     }
   }

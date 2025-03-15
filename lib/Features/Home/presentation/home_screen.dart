@@ -8,6 +8,7 @@ import 'package:smart_home_app/Core/Services/connection_provider.dart';
 import 'package:smart_home_app/Core/config/app_theme.dart';
 import 'package:smart_home_app/Core/config/localization.dart';
 import 'package:smart_home_app/Features/Home/presentation/live_room.dart';
+import 'package:shamsi_date/shamsi_date.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -29,12 +30,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isDarkMode = false;
   StreamSubscription? _messageSubscription;
   StreamSubscription? _connectionSubscription;
+  late Timer _timer;
+  String _currentTime = DateTime.now().toString().substring(11, 19);
+  String _currentDate =
+      Jalali.now().formatter.wN +
+      '، ' +
+      Jalali.now().day.toString() +
+      ' ' +
+      Jalali.now().formatter.mN +
+      ' ' +
+      Jalali.now().year.toString();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this); // اضافه کردن Observer
     _initializeSerialConnection();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        _currentTime = DateTime.now().toString().substring(11, 19);
+        _currentDate =
+            Jalali.now().formatter.wN +
+            '، ' +
+            Jalali.now().day.toString() +
+            ' ' +
+            Jalali.now().formatter.mN +
+            ' ' +
+            Jalali.now().year.toString();
+      });
+    });
   }
 
   @override
@@ -302,6 +326,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _timer.cancel();
     _cleanup();
     WidgetsBinding.instance.removeObserver(this); // حذف Observer
     messageController.dispose();
@@ -313,6 +338,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final connectionProvider = Provider.of<ConnectionProvider>(context);
+    // اندازه صفحه برای طراحی واکنش‌گرا
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isTablet = screenWidth > 600; // تشخیص تبلت یا گوشی
 
     return MaterialApp(
       theme: _isDarkMode ? AppTheme.darkTheme : AppTheme.lightTheme,
@@ -320,179 +349,488 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       localizationsDelegates: AppLocalization.localizationsDelegates,
       supportedLocales: AppLocalization.supportedLocales,
       home: Scaffold(
-        appBar: AppBar(
-          toolbarHeight: 100,
-          title: IconButton(
-            icon: Image.asset('assets/icons/icon.png', width: 120, height: 120),
-            onPressed: () {},
-          ),
-          actions: [
-            PopupMenuButton<String>(
-              onSelected: (String value) {
-                if (value == 'toggle_theme') {
-                  _toggleDarkMode();
-                }
-              },
-              itemBuilder:
-                  (BuildContext context) => [
-                    PopupMenuItem<String>(
-                      value: 'toggle_theme',
-                      child: Row(
-                        children: [
-                          Icon(
-                            _isDarkMode ? Icons.light_mode : Icons.dark_mode,
-                            color: _isDarkMode ? Colors.amber : Colors.black,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _isDarkMode ? 'حالت روشن' : 'حالت تاریک',
-                            style: TextStyle(fontSize: 16),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-            ),
-          ],
-        ),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: ListView(
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      connectionProvider.isConnected
-                          ? Icons.wifi
-                          : Icons.wifi_off,
-                      color:
-                          connectionProvider.isConnected
-                              ? Colors.green
-                              : Colors.red,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      connectionProvider.isConnected
-                          ? "وضعیت اتصال: روشن"
-                          : "وضعیت اتصال: خاموش",
-                      style: TextStyle(
-                        fontSize: 16,
-                        color:
-                            connectionProvider.isConnected
-                                ? Colors.green
-                                : Colors.red,
-                      ),
-                    ),
-                  ],
+        body: Stack(
+          children: [
+            // پس‌زمینه با تم زرد
+            Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: isTablet ? 2.5 : 1.5, // افزایش شعاع برای تبلت
+                  stops: const [0.0, 0.5, 1.0], // نقاط توقف برای پخش بهتر
+                  colors:
+                      _isDarkMode
+                          ? [
+                            Colors.grey[900]!,
+                            Colors.grey[800]!.withOpacity(
+                              0.8,
+                            ), // رنگ میانی برای عمق
+                            Colors.grey[800]!.withOpacity(0.8), // پخش نرم‌تر
+                          ]
+                          : [
+                            Colors.yellow[300]!.withOpacity(0.95),
+                            Colors.yellow[100]!.withOpacity(
+                              0.7,
+                            ), // رنگ میانی برای تبلت
+                            Colors.white.withOpacity(0.4), // پایان نرم‌تر
+                          ],
                 ),
-                const SizedBox(height: 16.0),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    shape: const CircleBorder(),
-                    padding: const EdgeInsets.all(24),
-                    backgroundColor:
-                        connectionProvider.isConnected
-                            ? Colors.red
-                            : Colors.blue,
+              ),
+            ),
+            SafeArea(
+              child: Column(
+                children: [
+                  // هدر
+                  Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isTablet ? 24.0 : 16.0,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Image.asset(
+                          'assets/icons/icon.png',
+                          width: isTablet ? 100 : 125,
+                          height: isTablet ? 100 : 125,
+                        ),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: Icon(
+                                Icons.settings,
+                                color:
+                                    _isDarkMode
+                                        ? Colors.yellow[300]
+                                        : Colors.yellow[800],
+                                size: isTablet ? 28 : 24,
+                              ),
+                              onPressed: () {
+                                // رفتن به صفحه تنظیمات
+                              },
+                            ),
+                            PopupMenuButton<String>(
+                              icon: Icon(
+                                _isDarkMode
+                                    ? Icons.light_mode
+                                    : Icons.dark_mode,
+                                color:
+                                    _isDarkMode
+                                        ? Colors.yellow[300]
+                                        : Colors.yellow[800],
+                                size: isTablet ? 28 : 24,
+                              ),
+                              onSelected: (String value) {
+                                if (value == 'toggle_theme') _toggleDarkMode();
+                              },
+                              itemBuilder:
+                                  (BuildContext context) => [
+                                    PopupMenuItem<String>(
+                                      value: 'toggle_theme',
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            _isDarkMode
+                                                ? Icons.light_mode
+                                                : Icons.dark_mode,
+                                            color:
+                                                _isDarkMode
+                                                    ? Colors.yellow[300]
+                                                    : Colors.yellow[800],
+                                          ),
+                                          SizedBox(width: isTablet ? 10 : 8),
+                                          Text(
+                                            _isDarkMode
+                                                ? 'حالت روشن'
+                                                : 'حالت تاریک',
+                                            style: TextStyle(
+                                              fontSize: isTablet ? 16 : 14,
+                                              color:
+                                                  _isDarkMode
+                                                      ? Colors.white
+                                                      : Colors.black,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  onPressed:
-                      connectionProvider.isConnected
-                          ? _disconnectButtonPressed
-                          : _getAllConnectedDevicesButtonPressed,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        connectionProvider.isConnected
-                            ? Icons.link_off
-                            : Icons.link,
-                        size: 32,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        connectionProvider.isConnected ? "قطع اتصال" : "اتصال",
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
+                  // محتوای اصلی
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isTablet ? 30.0 : 20.0,
+                        ),
+                        child: Column(
+                          children: [
+                            SizedBox(height: isTablet ? 20 : 10),
+                            // ساعت و تاریخ
+                            Container(
+                              padding: EdgeInsets.all(
+                                isTablet ? 24.0 : 16.0,
+                              ), // کاهش padding برای تعادل
+                              decoration: BoxDecoration(
+                                color:
+                                    _isDarkMode
+                                        ? Colors.grey[850]
+                                        : Colors.white,
+                                borderRadius: BorderRadius.circular(
+                                  isTablet ? 20 : 16,
+                                ), // گوشه‌های کمی کوچکتر
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(
+                                      _isDarkMode ? 0.3 : 0.15,
+                                    ),
+                                    blurRadius: isTablet ? 12 : 8,
+                                    offset: const Offset(0, 4),
+                                    spreadRadius:
+                                        1, // اضافه کردن spread برای سایه نرم‌تر
+                                  ),
+                                ],
+                                border: Border.all(
+                                  color: Colors.yellow[700]!,
+                                  width:
+                                      1.5, // ضخامت حاشیه کمی بیشتر برای جلوه بهتر
+                                ),
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors:
+                                      _isDarkMode
+                                          ? [
+                                            Colors.grey[850]!,
+                                            Colors.grey[900]!.withOpacity(0.9),
+                                          ]
+                                          : [
+                                            Colors.white,
+                                            Colors.yellow[50]!.withOpacity(0.5),
+                                          ], // گرادیانت ظریف داخل کارت
+                                ),
+                              ),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons
+                                            .watch_later_rounded, // آیکون مدرن‌تر
+                                        color:
+                                            _isDarkMode
+                                                ? Colors.yellow[300]
+                                                : Colors.yellow[800],
+                                        size:
+                                            isTablet
+                                                ? 36
+                                                : 28, // اندازه آیکون متعادل‌تر
+                                      ),
+                                      SizedBox(width: isTablet ? 12 : 8),
+                                      Text(
+                                        _currentTime,
+                                        style: TextStyle(
+                                          fontSize:
+                                              isTablet
+                                                  ? 48
+                                                  : 36, // کاهش اندازه فونت برای تبلت
+                                          fontWeight: FontWeight.w700,
+                                          color:
+                                              _isDarkMode
+                                                  ? Colors.yellow[300]
+                                                  : Colors.yellow[900],
+                                          letterSpacing: 1.2,
+                                          shadows: [
+                                            Shadow(
+                                              color: Colors.black.withOpacity(
+                                                0.2,
+                                              ),
+                                              blurRadius: 4,
+                                              offset: const Offset(1, 1),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  SizedBox(height: isTablet ? 12 : 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          _isDarkMode
+                                              ? Colors.grey[900]
+                                              : Colors.yellow[100],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      _currentDate,
+                                      style: TextStyle(
+                                        fontSize:
+                                            isTablet
+                                                ? 18
+                                                : 14, // کاهش اندازه فونت تاریخ
+                                        color:
+                                            _isDarkMode
+                                                ? Colors.grey[400]
+                                                : Colors.grey[800],
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: isTablet ? 50 : 30),
+                            // پیام خوش‌آمدگویی
+                            Text(
+                              'خوش آمدید به اسمارت‌هوم',
+                              style: TextStyle(
+                                fontSize: isTablet ? 36 : 28,
+                                fontWeight: FontWeight.bold,
+                                color:
+                                    _isDarkMode
+                                        ? Colors.grey[300]
+                                        : Colors.grey[900],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            SizedBox(height: isTablet ? 15 : 10),
+                            Text(
+                              'خانه هوشمند خود را به‌راحتی مدیریت کنید',
+                              style: TextStyle(
+                                fontSize: isTablet ? 18 : 14,
+                                color:
+                                    _isDarkMode
+                                        ? Colors.grey[400]
+                                        : Colors.grey[700],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            SizedBox(height: isTablet ? 50 : 30),
+                            // کارت وضعیت اتصال
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isTablet ? 25 : 20,
+                                vertical: isTablet ? 15 : 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    _isDarkMode
+                                        ? Colors.grey[850]
+                                        : Colors.white,
+                                borderRadius: BorderRadius.circular(
+                                  isTablet ? 20 : 15,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: isTablet ? 10 : 8,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    connectionProvider.isConnected
+                                        ? Icons.wifi
+                                        : Icons.wifi_off,
+                                    color:
+                                        connectionProvider.isConnected
+                                            ? Colors.green
+                                            : Colors.red,
+                                    size: isTablet ? 28 : 24,
+                                  ),
+                                  SizedBox(width: isTablet ? 12 : 10),
+                                  Text(
+                                    connectionProvider.isConnected
+                                        ? 'متصل'
+                                        : 'اتصال قطع است',
+                                    style: TextStyle(
+                                      fontSize: isTablet ? 20 : 16,
+                                      fontWeight: FontWeight.bold,
+                                      color:
+                                          connectionProvider.isConnected
+                                              ? Colors.green
+                                              : Colors.red,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: isTablet ? 50 : 30),
+                            // دکمه اصلی برای مدیریت دستگاه‌ها
+                            ElevatedButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => LiveRoom(),
+                                  ),
+                                );
+                              },
+                              style: ElevatedButton.styleFrom(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: isTablet ? 70 : 50,
+                                  vertical: isTablet ? 20 : 15,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    isTablet ? 50 : 30,
+                                  ),
+                                ),
+                                backgroundColor:
+                                    _isDarkMode
+                                        ? Colors.yellow[700]
+                                        : Colors.grey[700],
+                                elevation: isTablet ? 10 : 8,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'مدیریت دستگاه‌ها',
+                                    style: TextStyle(
+                                      fontSize: isTablet ? 24 : 18,
+                                      color:
+                                          _isDarkMode
+                                              ? Colors.grey[900]
+                                              : Colors.amber,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  SizedBox(width: isTablet ? 15 : 10),
+                                  Container(
+                                    padding: EdgeInsets.all(isTablet ? 8 : 6),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color:
+                                          _isDarkMode
+                                              ? Colors.grey[900]
+                                              : Colors.amber,
+                                    ),
+                                    child: Icon(
+                                      Icons.arrow_forward,
+                                      size: isTablet ? 24 : 20,
+                                      color:
+                                          _isDarkMode
+                                              ? Colors.yellow[700]
+                                              : Colors.grey[700],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: isTablet ? 50 : 30),
+                            // اطلاعات اضافی
+                            Container(
+                              padding: EdgeInsets.all(isTablet ? 15 : 12),
+                              decoration: BoxDecoration(
+                                color:
+                                    _isDarkMode
+                                        ? Colors.grey[850]
+                                        : Colors.white,
+                                borderRadius: BorderRadius.circular(
+                                  isTablet ? 15 : 12,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: isTablet ? 10 : 8,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.devices,
+                                    size: isTablet ? 24 : 20,
+                                    color:
+                                        _isDarkMode
+                                            ? Colors.yellow[300]
+                                            : Colors.yellow[800],
+                                  ),
+                                  SizedBox(width: isTablet ? 10 : 8),
+                                  Text(
+                                    'دستگاه‌های متصل: ${connectedDevices.length}',
+                                    style: TextStyle(
+                                      fontSize: isTablet ? 18 : 14,
+                                      color:
+                                          _isDarkMode
+                                              ? Colors.grey[400]
+                                              : Colors.grey[700],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: isTablet ? 30 : 20),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16.0),
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => LiveRoom()),
-                    );
-                  },
-                  child: Text('برو به Liveroom'),
-                ),
-                if (connectionProvider.isConnected) ...[
-                  ElevatedButton(onPressed: () {}, child: const Text("save")),
-                  const Text(
-                    "Command to send:",
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  TextField(
-                    controller: commandController,
-                    readOnly: true,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      hintText: "Command will be displayed here",
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: _disconnectButtonPressed,
-                    child: const Text("Disconnect"),
-                  ),
-                  const SizedBox(height: 16.0),
-                  const Text(
-                    "Status:",
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  TextField(
-                    controller: statusController,
-                    maxLines: 6,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      hintText: "Status will be displayed here",
-                    ),
-                    readOnly: true,
-                  ),
-                  const SizedBox(height: 16.0),
-                  const Text(
-                    "Received Messages:",
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Container(
-                    height: 200,
-                    padding: const EdgeInsets.all(8.0),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey),
-                      borderRadius: BorderRadius.circular(8.0),
-                    ),
-                    child: ListView.builder(
-                      itemCount: receivedMessages.length,
-                      itemBuilder: (context, index) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4.0),
-                          child: SelectableText(
-                            receivedMessages[index],
-                            style: const TextStyle(fontSize: 14.0),
-                          ),
-                        );
-                      },
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickActionCard(
+    String title,
+    IconData icon,
+    VoidCallback onTap,
+  ) {
+    final isTablet = MediaQuery.of(context).size.width > 600;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: isTablet ? 120 : 80,
+        height: isTablet ? 120 : 80,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: _isDarkMode ? Colors.grey[800] : Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: isTablet ? 8 : 6,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: isTablet ? 40 : 30,
+              color: _isDarkMode ? Colors.yellow[300] : Colors.yellow[800],
+            ),
+            SizedBox(height: isTablet ? 8 : 4),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: isTablet ? 16 : 12,
+                color: _isDarkMode ? Colors.white : Colors.black,
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
     );

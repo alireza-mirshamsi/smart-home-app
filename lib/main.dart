@@ -8,9 +8,7 @@ import 'package:smart_home_app/features/home/presentation/home_screen.dart';
 void main() {
   runApp(
     MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ConnectionProvider()),
-      ],
+      providers: [ChangeNotifierProvider(create: (_) => ConnectionProvider())],
       child: MyApp(),
     ),
   );
