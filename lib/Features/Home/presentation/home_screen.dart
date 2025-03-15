@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -15,7 +16,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final _flutterSerialCommunicationPlugin = FlutterSerialCommunication();
   List<DeviceInfo> connectedDevices = [];
   List<String> receivedMessages = [];
@@ -26,72 +27,115 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<int, bool> buttonStates = {};
   TextEditingController statusController = TextEditingController();
   bool _isDarkMode = false;
+  StreamSubscription? _messageSubscription;
+  StreamSubscription? _connectionSubscription;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // اضافه کردن Observer
+    _initializeSerialConnection();
+  }
 
-    // بررسی و اتصال خودکار به دستگاه‌ها
-    _checkAndConnectToDevice();
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // بررسی و بازگردانی اتصال هنگام بازگشت به صفحه
+    final connectionProvider = Provider.of<ConnectionProvider>(
+      context,
+      listen: false,
+    );
+    if (!connectionProvider.isConnected) {
+      _initializeSerialConnection();
+    }
+  }
 
-    _flutterSerialCommunicationPlugin
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // وقتی برنامه از پس‌زمینه به پیش‌زمینه برمی‌گردد
+      _initializeSerialConnection();
+    } else if (state == AppLifecycleState.paused) {
+      // وقتی برنامه به پس‌زمینه می‌رود
+      _cleanup();
+    }
+  }
+
+  void _initializeSerialConnection() async {
+    // لغو listenerهای قبلی اگر وجود داشته باشند
+    _messageSubscription?.cancel();
+    _connectionSubscription?.cancel();
+
+    await _checkAndConnectToDevice();
+
+    _messageSubscription = _flutterSerialCommunicationPlugin
         .getSerialMessageListener()
         .receiveBroadcastStream()
-        .listen((event) {
-          receivedBytesBuffer.addAll(event);
-          int endIndex = -1;
-          for (int i = 0; i < receivedBytesBuffer.length; i++) {
-            if (receivedBytesBuffer[i] == 0x46) {
-              int startIndex = -1;
-              for (int j = i - 1; j >= 0; j--) {
-                if (receivedBytesBuffer[j] == 0x23) {
-                  startIndex = j;
-                  endIndex = i;
-                  break;
+        .listen(
+          (event) {
+            receivedBytesBuffer.addAll(event);
+            int endIndex = -1;
+            for (int i = 0; i < receivedBytesBuffer.length; i++) {
+              if (receivedBytesBuffer[i] == 0x46) {
+                int startIndex = -1;
+                for (int j = i - 1; j >= 0; j--) {
+                  if (receivedBytesBuffer[j] == 0x23) {
+                    startIndex = j;
+                    endIndex = i;
+                    break;
+                  }
                 }
+                if (startIndex != -1) break;
               }
-              if (startIndex != -1) break;
             }
-          }
 
-          if (endIndex != -1) {
-            List<int> completeMessageBytes = receivedBytesBuffer.sublist(
-              0,
-              endIndex + 1,
-            );
-            String message;
-            try {
-              message = utf8.decode(completeMessageBytes);
-            } catch (e) {
-              message = "Error decoding: $e";
+            if (endIndex != -1) {
+              List<int> completeMessageBytes = receivedBytesBuffer.sublist(
+                0,
+                endIndex + 1,
+              );
+              String message;
+              try {
+                message = utf8.decode(completeMessageBytes);
+              } catch (e) {
+                message = "Error decoding: $e";
+              }
+              receivedBytesBuffer.removeRange(0, endIndex + 1);
+              message = message.trim();
+
+              setState(() {
+                receivedMessages.add(message);
+                _processReceivedMessage(message);
+              });
+              debugPrint("Received From Native: $message");
             }
-            receivedBytesBuffer.removeRange(0, endIndex + 1);
-            message = message.trim();
+          },
+          onError: (error) {
+            debugPrint("Error in message stream: $error");
+          },
+        );
 
-            setState(() {
-              receivedMessages.add(message);
-              _processReceivedMessage(message);
-            });
-            debugPrint("Received From Native: $message");
-          }
-        });
-
-    _flutterSerialCommunicationPlugin
+    _connectionSubscription = _flutterSerialCommunicationPlugin
         .getDeviceConnectionListener()
         .receiveBroadcastStream()
-        .listen((event) {
-          Provider.of<ConnectionProvider>(
-            context,
-            listen: false,
-          ).setConnectionStatus(event); // به‌روزرسانی وضعیت با Provider
-        });
+        .listen(
+          (event) {
+            Provider.of<ConnectionProvider>(
+              context,
+              listen: false,
+            ).setConnectionStatus(event);
+          },
+          onError: (error) {
+            debugPrint("Error in connection stream: $error");
+          },
+        );
   }
 
   Future<void> _checkAndConnectToDevice() async {
     List<DeviceInfo> devices =
         await _flutterSerialCommunicationPlugin.getAvailableDevices();
     if (devices.isNotEmpty) {
-      // اتصال به اولین دستگاه موجود
       bool isConnectionSuccess = await _flutterSerialCommunicationPlugin
           .connect(devices.first, 115200);
       if (isConnectionSuccess) {
@@ -102,8 +146,18 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           connectedDevices = devices;
         });
+      } else {
+        debugPrint("Failed to connect to device");
       }
+    } else {
+      debugPrint("No devices found");
     }
+  }
+
+  void _cleanup() {
+    _messageSubscription?.cancel();
+    _connectionSubscription?.cancel();
+    _flutterSerialCommunicationPlugin.disconnect();
   }
 
   void _toggleDarkMode() {
@@ -247,10 +301,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void dispose() {
+    _cleanup();
+    WidgetsBinding.instance.removeObserver(this); // حذف Observer
+    messageController.dispose();
+    commandController.dispose();
+    statusController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final connectionProvider = Provider.of<ConnectionProvider>(
-      context,
-    ); // دسترسی به Provider
+    final connectionProvider = Provider.of<ConnectionProvider>(context);
 
     return MaterialApp(
       theme: _isDarkMode ? AppTheme.darkTheme : AppTheme.lightTheme,
