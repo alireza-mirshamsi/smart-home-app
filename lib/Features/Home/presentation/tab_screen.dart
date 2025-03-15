@@ -24,14 +24,14 @@ class _TabScreenState extends State<TabScreen> {
   List<String> receivedMessages = [];
   String deviceId = '';
 
-  // لیست دستگاه‌ها به‌صورت خالی شروع می‌شود
+  // لیست دستگاه‌ها برای itemName خاص
   List<Map<String, String>> devices = [];
 
   @override
   void initState() {
     super.initState();
 
-    // بارگذاری لیست دستگاه‌ها از SharedPreferences
+    // بارگذاری لیست دستگاه‌ها از SharedPreferences برای itemName خاص
     _loadDevicesFromPrefs();
 
     // اتصال خودکار به دستگاه و دریافت پیام‌ها
@@ -68,7 +68,7 @@ class _TabScreenState extends State<TabScreen> {
             } catch (e) {
               message = "Error decoding: $e";
               debugPrint("خطا در رمزگشایی پیام: $e");
-              return; // اگر رمزگشایی ناموفق بود، ادامه نده
+              return;
             }
             receivedBytesBuffer.removeRange(0, endIndex + 1);
             message = message.trim();
@@ -92,10 +92,10 @@ class _TabScreenState extends State<TabScreen> {
         });
   }
 
-  // بارگذاری دستگاه‌ها از SharedPreferences
+  // بارگذاری دستگاه‌ها از SharedPreferences برای itemName خاص
   Future<void> _loadDevicesFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
-    final String? devicesString = prefs.getString('devices');
+    final String? devicesString = prefs.getString('devices_${widget.itemName}');
     if (devicesString != null) {
       setState(() {
         devices = List<Map<String, String>>.from(
@@ -107,12 +107,12 @@ class _TabScreenState extends State<TabScreen> {
     }
   }
 
-  // ذخیره دستگاه‌ها در SharedPreferences
+  // ذخیره دستگاه‌ها در SharedPreferences برای itemName خاص
   Future<void> _saveDevicesToPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final String devicesString = json.encode(devices);
-    await prefs.setString('devices', devicesString);
-    debugPrint("Devices saved to SharedPreferences: $devicesString");
+    await prefs.setString('devices_${widget.itemName}', devicesString);
+    debugPrint("Devices saved for ${widget.itemName}: $devicesString");
   }
 
   Future<void> _checkAndConnectToDevice() async {
@@ -134,7 +134,6 @@ class _TabScreenState extends State<TabScreen> {
   }
 
   void _processReceivedMessage(String message) {
-    // فقط پیام‌هایی با فرمت صحیح پردازش می‌شوند
     if (message.startsWith("#") &&
         message.contains("A") &&
         message.contains("B") &&
@@ -145,7 +144,6 @@ class _TabScreenState extends State<TabScreen> {
         String receivedDeviceId = match.group(1)!; // عدد بین # و A
         String deviceTypeCode = match.group(2)!; // عدد بین A و B
 
-        // اطمینان از اینکه پیام کاملاً معتبر است و deviceId خالی نیست
         if (receivedDeviceId.isEmpty ||
             !regex.hasMatch(message) ||
             receivedDeviceId == "0" ||
@@ -162,14 +160,16 @@ class _TabScreenState extends State<TabScreen> {
               (d) => d["deviceId"] == receivedDeviceId,
             );
             if (deviceIndex == -1) {
-              // فقط اگر دستگاه جدید باشد اضافه کن
+              // اضافه کردن دستگاه جدید فقط برای itemName فعلی
               devices.add({
-                "name": "کلید چهار پل جدید",
+                "name": "کلید چهار پل",
                 "deviceId": receivedDeviceId,
                 "image": "assets/4-pol.jpeg",
               });
               _saveDevicesToPrefs();
-              debugPrint("دستگاه جدید اضافه شد: $receivedDeviceId");
+              debugPrint(
+                "دستگاه جدید اضافه شد برای ${widget.itemName}: $receivedDeviceId",
+              );
             } else {
               debugPrint(
                 "دستگاه از قبل وجود دارد: ${devices[deviceIndex]["name"]}",
@@ -203,7 +203,6 @@ class _TabScreenState extends State<TabScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text("ارسال دستور LEARN ناموفق بود")));
     }
-    // اینجا هیچ دستگاهی اضافه نمی‌شود، فقط منتظر دریافت پیام می‌ماند
   }
 
   _sendTransCommand() async {
