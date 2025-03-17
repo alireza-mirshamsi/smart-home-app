@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:smart_home_app/Core/Services/connection_provider.dart';
+import 'package:smart_home_app/Core/Services/device_provider.dart';
 import 'package:smart_home_app/Core/config/app_theme.dart';
 import 'package:smart_home_app/Core/config/localization.dart';
 import 'package:smart_home_app/features/home/presentation/home_screen.dart';
@@ -8,7 +9,10 @@ import 'package:smart_home_app/features/home/presentation/home_screen.dart';
 void main() {
   runApp(
     MultiProvider(
-      providers: [ChangeNotifierProvider(create: (_) => ConnectionProvider())],
+      providers: [
+        ChangeNotifierProvider(create: (_) => ConnectionProvider()),
+        ChangeNotifierProvider(create: (_) => DeviceProvider()),
+      ],
       child: MyApp(),
     ),
   );

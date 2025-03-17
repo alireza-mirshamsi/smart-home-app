@@ -5,6 +5,8 @@ import 'package:smart_home_app/Core/Model/item_device_model.dart';
 import 'package:smart_home_app/Core/Services/connection_provider.dart';
 import 'package:smart_home_app/Core/Services/item_list_tile.dart';
 import 'package:smart_home_app/Core/Services/storage_item.dart';
+import 'package:smart_home_app/Core/config/app_theme.dart';
+import 'package:smart_home_app/Core/config/localization.dart';
 import 'package:smart_home_app/Features/Home/presentation/tab_screen.dart';
 import 'package:flutter_serial_communication/flutter_serial_communication.dart';
 import 'package:flutter_serial_communication/models/device_info.dart';
@@ -22,12 +24,11 @@ class _LiveRoomState extends State<LiveRoom> {
   final SharedPreferencesService _prefsService = SharedPreferencesService();
   final TextEditingController _textController = TextEditingController();
   List<ItemDeviceModel> _items = [];
+  bool _isDarkMode = false;
 
   @override
   void initState() {
     super.initState();
-
-    // اتصال خودکار به دستگاه
     _checkAndConnectToDevice();
 
     _flutterSerialCommunicationPlugin
@@ -79,7 +80,7 @@ class _LiveRoomState extends State<LiveRoom> {
           Provider.of<ConnectionProvider>(
             context,
             listen: false,
-          ).setConnectionStatus(event); // به‌روزرسانی وضعیت با Provider
+          ).setConnectionStatus(event);
         });
 
     _loadItems();
@@ -90,10 +91,7 @@ class _LiveRoomState extends State<LiveRoom> {
         await _flutterSerialCommunicationPlugin.getAvailableDevices();
     if (devices.isNotEmpty) {
       bool isConnectionSuccess = await _flutterSerialCommunicationPlugin
-          .connect(
-            devices.first, // اتصال به اولین دستگاه
-            115200,
-          );
+          .connect(devices.first, 115200);
       if (isConnectionSuccess) {
         Provider.of<ConnectionProvider>(
           context,
@@ -182,58 +180,198 @@ class _LiveRoomState extends State<LiveRoom> {
     );
   }
 
+  void _toggleDarkMode() {
+    setState(() {
+      _isDarkMode = !_isDarkMode;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final connectionProvider = Provider.of<ConnectionProvider>(
-      context,
-    ); // دسترسی به Provider
+    final connectionProvider = Provider.of<ConnectionProvider>(context);
+    final bool isTablet = MediaQuery.of(context).size.width > 600;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('محل نصب دستگاه'),
-            Row(
-              children: [
-                Icon(
-                  connectionProvider.isConnected ? Icons.wifi : Icons.wifi_off,
-                  color:
-                      connectionProvider.isConnected
-                          ? Colors.green
-                          : Colors.red,
-                ),
-                SizedBox(width: 8),
-                Text(
-                  connectionProvider.isConnected ? 'متصل' : 'قطع شده',
-                  style: TextStyle(
-                    color:
-                        connectionProvider.isConnected
-                            ? Colors.green
-                            : Colors.red,
+    return MaterialApp(
+      locale: const Locale("fa", ""),
+      localizationsDelegates: AppLocalization.localizationsDelegates,
+      supportedLocales: AppLocalization.supportedLocales,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      home: Scaffold(
+        body: SafeArea(
+          child: Column(
+            children: [
+              // Enhanced Custom Header
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors:
+                        _isDarkMode
+                            ? [Colors.grey[900]!, Colors.grey[800]!]
+                            : [Colors.amber[700]!, Colors.amber[400]!],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
                 ),
-              ],
-            ),
-          ],
+                padding: EdgeInsets.symmetric(
+                  horizontal: isTablet ? 24.0 : 16.0,
+                  vertical: 16.0,
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          "محل نصب دستگاه",
+                          style: TextStyle(
+                            fontSize: isTablet ? 30 : 20,
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        AnimatedContainer(
+                          duration: Duration(milliseconds: 300),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                connectionProvider.isConnected
+                                    ? Colors.green.withOpacity(0.2)
+                                    : Colors.red.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color:
+                                  connectionProvider.isConnected
+                                      ? Colors.green
+                                      : Colors.red,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                connectionProvider.isConnected
+                                    ? Icons.check_circle
+                                    : Icons.error,
+                                size: isTablet ? 20 : 16,
+                                color:
+                                    connectionProvider.isConnected
+                                        ? Colors.green
+                                        : Colors.red,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                connectionProvider.isConnected
+                                    ? 'متصل'
+                                    : 'قطع شده',
+                                style: TextStyle(
+                                  fontSize: isTablet ? 16 : 14,
+                                  color:
+                                      connectionProvider.isConnected
+                                          ? Colors.green
+                                          : Colors.red,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            Icons.settings,
+                            color: Colors.grey[800],
+                            size: isTablet ? 28 : 24,
+                          ),
+                          onPressed: () {},
+                        ),
+                        PopupMenuButton<String>(
+                          icon: Icon(
+                            _isDarkMode ? Icons.light_mode : Icons.dark_mode,
+                            color: Colors.white,
+                            size: isTablet ? 28 : 24,
+                          ),
+                          onSelected: (String value) {
+                            if (value == 'toggle_theme') _toggleDarkMode();
+                          },
+                          itemBuilder:
+                              (BuildContext context) => [
+                                PopupMenuItem<String>(
+                                  value: 'toggle_theme',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        _isDarkMode
+                                            ? Icons.light_mode
+                                            : Icons.dark_mode,
+                                        color:
+                                            _isDarkMode
+                                                ? Colors.yellow[300]
+                                                : Colors.yellow[800],
+                                      ),
+                                      SizedBox(width: isTablet ? 10 : 8),
+                                      Text(
+                                        _isDarkMode
+                                            ? 'حالت روشن'
+                                            : 'حالت تاریک',
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              // Enhanced ListView with Cards
+              Expanded(
+                child: Container(
+                  color: _isDarkMode ? Colors.grey[850] : Colors.grey[100],
+                  child: ListView.builder(
+                    padding: EdgeInsets.all(isTablet ? 16.0 : 8.0),
+                    itemCount: _items.length,
+                    itemBuilder: (context, index) {
+                      return Card(
+                        elevation: 2,
+                        margin: EdgeInsets.symmetric(
+                          vertical: 4,
+                          horizontal: 8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        color: _isDarkMode ? Colors.grey[800] : Colors.white,
+                        child: ItemListTile(
+                          itemName: _items[index].name,
+                          onDelete: () => _removeItem(index),
+                          onTap:
+                              () => _navigateToDetailScreen(_items[index].name),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      body: ListView.builder(
-        itemCount: _items.length,
-        itemBuilder: (context, index) {
-          return ItemListTile(
-            itemName: _items[index].name,
-            onDelete: () => _removeItem(index),
-            onTap: () => _navigateToDetailScreen(_items[index].name),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.amber,
-        shape: CircleBorder(),
-        onPressed: _showAddItemDialog,
-        child: Icon(Icons.add),
-        tooltip: 'اضافه کردن آیتم جدید',
+        floatingActionButton: FloatingActionButton(
+          backgroundColor: Colors.amber,
+          shape: CircleBorder(),
+          onPressed: _showAddItemDialog,
+          child: Icon(Icons.add, size: 28),
+          tooltip: 'اضافه کردن آیتم جدید',
+          elevation: 6,
+        ),
       ),
     );
   }

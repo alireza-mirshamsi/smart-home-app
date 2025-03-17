@@ -19,18 +19,7 @@ class ItemListTile extends StatelessWidget {
         horizontal: 8.0,
       ), // فاصله از اطراف
       child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white, // پس‌زمینه سفید
-          borderRadius: BorderRadius.circular(8.0),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.2), // سایه ملایم
-              spreadRadius: 1,
-              blurRadius: 3,
-              offset: Offset(0, 2), // جهت سایه
-            ),
-          ],
-        ),
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(8.0)),
         child: ListTile(
           title: Text(itemName),
           onTap: onTap,
