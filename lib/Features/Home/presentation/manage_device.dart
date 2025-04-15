@@ -1,109 +1,138 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smart_home_app/Core/Model/shedule_model.dart';
 import 'package:smart_home_app/Core/Services/connection_provider.dart';
+import 'package:smart_home_app/Core/Services/device_provider.dart';
+import 'package:smart_home_app/Core/Services/serial_service.dart';
 import 'package:smart_home_app/Core/Widget/schedule_settings.dart';
-import 'package:smart_home_app/Core/config/localization.dart';
 import 'package:smart_home_app/Features/Home/smart_device_box.dart';
-import 'package:flutter_serial_communication/flutter_serial_communication.dart';
 import 'package:flutter_serial_communication/models/device_info.dart';
 
 class ManageDevice extends StatefulWidget {
   final String deviceId;
+  final String deviceInfo;
+  final String itemName;
 
-  const ManageDevice({super.key, required this.deviceId});
+  const ManageDevice({
+    super.key,
+    required this.deviceId,
+    required this.deviceInfo,
+    required this.itemName,
+  });
 
   @override
   State<ManageDevice> createState() => _ManageDeviceState();
 }
 
-class _ManageDeviceState extends State<ManageDevice> {
-  final _flutterSerialCommunicationPlugin = FlutterSerialCommunication();
-  Map<int, bool> buttonStates = {};
+class _ManageDeviceState extends State<ManageDevice>
+    with WidgetsBindingObserver {
+  final SerialService _serialService = SerialService();
   Map<int, ScheduleModel> relaySchedules = {};
   final double horizontalPadding = 40;
   final double verticalPadding = 25;
-  int packetNumber = 0;
-  TextEditingController commandController = TextEditingController();
   List<int> receivedBytesBuffer = [];
   List<String> receivedMessages = [];
-
-  List mySmartDevices = [
-    ["تاچ 1", "assets/lightbulb.png", false],
-    ["تاچ 2", "assets/lightbulb.png", false],
-    ["تاچ 3", "assets/lightbulb.png", false],
-    ["تاچ 4", "assets/lightbulb.png", false],
-  ];
+  List mySmartDevices = [];
+  StreamSubscription? _serialSubscription;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initialize();
   }
 
   Future<void> _initialize() async {
-    await loadAllData();
     await loadSchedules();
-    _reconnectIfNeeded();
-    _setupSerialListeners();
+    await _reconnectIfNeeded();
     _startScheduleChecker();
+
+    final deviceProvider = Provider.of<DeviceProvider>(context, listen: false);
+    await deviceProvider.loadButtonStatesFromPrefs(widget.deviceId);
+    _updateSmartDevices(deviceProvider);
   }
 
-  // Connection Handling
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    debugPrint("Lifecycle State (ManageDevice): $state");
+    if (state == AppLifecycleState.resumed) {
+      _reconnectIfNeeded();
+      _setupSerialListener();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _serialSubscription?.cancel();
+    }
+  }
+
+  void _updateSmartDevices(DeviceProvider deviceProvider) {
+    final device = deviceProvider.getDeviceById(
+      widget.deviceId,
+      widget.itemName,
+    );
+    if (device.isNotEmpty) {
+      int poleCount = int.parse(device["poleCount"] ?? "1");
+      setState(() {
+        mySmartDevices = List.generate(
+          poleCount,
+          (index) => [
+            "تاچ ${index + 1}",
+            "assets/lightbulb.png",
+            deviceProvider.getButtonStates(widget.deviceId)[index + 1] ?? false,
+          ],
+        );
+      });
+    }
+  }
+
+  void _setupSerialListener() {
+    _serialSubscription?.cancel();
+    _serialSubscription = _serialService.getSerialMessages().listen((event) {
+      receivedBytesBuffer.addAll(event);
+      int endIndex = receivedBytesBuffer.indexOf(0x46);
+      if (endIndex != -1) {
+        int startIndex = receivedBytesBuffer.lastIndexOf(0x23, endIndex);
+        if (startIndex != -1) {
+          String message =
+              utf8
+                  .decode(receivedBytesBuffer.sublist(startIndex, endIndex + 1))
+                  .trim();
+          receivedBytesBuffer.removeRange(0, endIndex + 1);
+          debugPrint("پیام دریافتی (ManageDevice): $message");
+          setState(() {
+            receivedMessages.add(message);
+            _processReceivedMessage(message);
+          });
+        }
+      }
+    });
+  }
+
   Future<void> _reconnectIfNeeded() async {
     final connectionProvider = Provider.of<ConnectionProvider>(
       context,
       listen: false,
     );
     if (!connectionProvider.isConnected) {
-      List<DeviceInfo> devices =
-          await _flutterSerialCommunicationPlugin.getAvailableDevices();
+      List<DeviceInfo> devices = await _serialService.getAvailableDevices();
       if (devices.isNotEmpty) {
-        bool success = await _flutterSerialCommunicationPlugin.connect(
-          devices.first,
-          115200,
-        );
+        bool success = await _serialService.connect(devices.first, 115200);
         connectionProvider.setConnectionStatus(success);
+        debugPrint("وضعیت اتصال (ManageDevice): $success");
         if (!success) {
-          _showSnackBar('اتصال به دستگاه ناموفق بود');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('اتصال به دستگاه ناموفق بود')),
+          );
         }
       } else {
-        _showSnackBar('هیچ دستگاهی یافت نشد');
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('هیچ دستگاهی یافت نشد')));
       }
-    }
-  }
-
-  // Data Persistence
-  Future<void> saveAllData() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String> statusList =
-        buttonStates.entries
-            .map((e) => '${e.key}:${e.value ? "ON" : "OFF"}')
-            .toList();
-    await prefs.setStringList('relayStatus_${widget.deviceId}', statusList);
-  }
-
-  Future<void> loadAllData() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String>? statusList = prefs.getStringList(
-      'relayStatus_${widget.deviceId}',
-    );
-    if (statusList != null) {
-      Map<int, bool> loadedStates = {};
-      for (String status in statusList) {
-        var parts = status.split(':');
-        loadedStates[int.parse(parts[0])] = parts[1] == "ON";
-      }
-      setState(() {
-        buttonStates = loadedStates;
-        for (int i = 0; i < mySmartDevices.length; i++) {
-          mySmartDevices[i][2] = buttonStates[i + 1] ?? false;
-        }
-      });
     }
   }
 
@@ -132,127 +161,97 @@ class _ManageDeviceState extends State<ManageDevice> {
     }
   }
 
-  // Device Control
   void _toggleCommand(int buttonNumber, bool newValue) async {
     final connectionProvider = Provider.of<ConnectionProvider>(
       context,
       listen: false,
     );
     if (!connectionProvider.isConnected) {
-      _showSnackBar('دستگاه متصل نیست');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('دستگاه متصل نیست')));
       await _reconnectIfNeeded();
-      return;
+      if (!connectionProvider.isConnected) return;
     }
+
     String stateDigit = newValue ? "1" : "0";
     String command =
-        "#${stateDigit}A${buttonNumber}B6C7D${widget.deviceId}E${packetNumber}F\n";
-    bool sent = await _flutterSerialCommunicationPlugin.write(
-      Uint8List.fromList(command.codeUnits),
-    );
+        "#${stateDigit}A${buttonNumber}B${widget.deviceInfo}C7D${widget.deviceId}E${Random().nextInt(10000)}F\n";
+    debugPrint("دستور ارسالی (ManageDevice): $command");
+    bool sent = await _serialService.write(command);
     if (sent) {
+      debugPrint("دستور با موفقیت ارسال شد (ManageDevice)");
+      Provider.of<DeviceProvider>(
+        context,
+        listen: false,
+      ).updateButtonState(widget.deviceId, buttonNumber, newValue);
       setState(() {
-        buttonStates[buttonNumber] = newValue;
         mySmartDevices[buttonNumber - 1][2] = newValue;
-        commandController.text = command;
-        packetNumber = Random().nextInt(10000);
-
-        // ریست پرچم‌ها در صورت تغییر دستی
         if (relaySchedules.containsKey(buttonNumber)) {
           if (newValue && relaySchedules[buttonNumber]!.onTime != null) {
-            relaySchedules[buttonNumber]!.onTriggered =
-                true; // جلوگیری از اجرای دوباره
+            relaySchedules[buttonNumber]!.onTriggered = true;
           } else if (!newValue &&
               relaySchedules[buttonNumber]!.offTime != null) {
-            relaySchedules[buttonNumber]!.offTriggered =
-                true; // جلوگیری از اجرای دوباره
+            relaySchedules[buttonNumber]!.offTriggered = true;
           }
         }
       });
-      await saveAllData();
-      await saveSchedules(); // ذخیره تغییرات پرچم‌ها
+      await saveSchedules();
+    } else {
+      debugPrint("خطا در ارسال دستور (ManageDevice)");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('خطا در ارسال دستور')));
     }
   }
 
   void _processReceivedMessage(String message) {
-    RegExp regex = RegExp(r"#(\d)A(\d+)B6C(\d+)D7E\d+F");
+    RegExp regex = RegExp(r"#(\d)A(\d+)B(\d+)C(\d+)D(\d+)E(\d+)F");
     Match? match = regex.firstMatch(message);
-    if (match != null && match.group(3) == widget.deviceId) {
+    if (match != null && match.group(4) == widget.deviceId) {
       bool newState = match.group(1) == "1";
       int relayNumber = int.parse(match.group(2)!);
+      debugPrint(
+        "پیام پردازش شد (ManageDevice): رله $relayNumber به $newState تغییر کرد",
+      );
+      Provider.of<DeviceProvider>(
+        context,
+        listen: false,
+      ).updateButtonState(widget.deviceId, relayNumber, newState);
       setState(() {
-        buttonStates[relayNumber] = newState;
         mySmartDevices[relayNumber - 1][2] = newState;
       });
-      saveAllData();
     }
   }
 
-  // Serial Communication
-  void _setupSerialListeners() {
-    _flutterSerialCommunicationPlugin
-        .getSerialMessageListener()
-        .receiveBroadcastStream()
-        .listen((event) {
-          receivedBytesBuffer.addAll(event);
-          int endIndex = receivedBytesBuffer.indexOf(0x46);
-          if (endIndex != -1) {
-            int startIndex = receivedBytesBuffer.lastIndexOf(0x23, endIndex);
-            if (startIndex != -1) {
-              String message =
-                  utf8
-                      .decode(
-                        receivedBytesBuffer.sublist(startIndex, endIndex + 1),
-                      )
-                      .trim();
-              receivedBytesBuffer.removeRange(0, endIndex + 1);
-              setState(() {
-                receivedMessages.add(message);
-                _processReceivedMessage(message);
-              });
-            }
-          }
-        });
-
-    _flutterSerialCommunicationPlugin
-        .getDeviceConnectionListener()
-        .receiveBroadcastStream()
-        .listen((event) {
-          Provider.of<ConnectionProvider>(
-            context,
-            listen: false,
-          ).setConnectionStatus(event);
-        });
-  }
-
-  // Schedule Management
   void _startScheduleChecker() {
-    Future.delayed(Duration(seconds: 1), () {
-      _checkSchedules();
-      _startScheduleChecker();
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) {
+        _checkSchedules();
+        _startScheduleChecker();
+      }
     });
   }
 
   void _checkSchedules() {
     final now = TimeOfDay.now();
+    final deviceProvider = Provider.of<DeviceProvider>(context, listen: false);
     relaySchedules.forEach((relay, schedule) {
-      // بررسی زمان روشن شدن
       if (schedule.onTime != null &&
           now.hour == schedule.onTime!.hour &&
           now.minute == schedule.onTime!.minute &&
           !schedule.onTriggered) {
-        // فقط اگر هنوز اجرا نشده باشد
-        if (!(buttonStates[relay] ?? false)) {
-          // اگر دستگاه خاموش است
+        if (!(deviceProvider.getButtonStates(widget.deviceId)[relay] ??
+            false)) {
           _toggleCommand(relay, true);
         }
         setState(() {
-          schedule.onTriggered = true; // علامت‌گذاری به‌عنوان اجرا شده
+          schedule.onTriggered = true;
         });
         saveSchedules();
       } else if (schedule.onTime != null &&
           (now.hour != schedule.onTime!.hour ||
               now.minute != schedule.onTime!.minute)) {
-        // ریست پرچم وقتی زمان تغییر کرد
         if (schedule.onTriggered) {
           setState(() {
             schedule.onTriggered = false;
@@ -261,24 +260,20 @@ class _ManageDeviceState extends State<ManageDevice> {
         }
       }
 
-      // بررسی زمان خاموش شدن
       if (schedule.offTime != null &&
           now.hour == schedule.offTime!.hour &&
           now.minute == schedule.offTime!.minute &&
           !schedule.offTriggered) {
-        // فقط اگر هنوز اجرا نشده باشد
-        if (buttonStates[relay] ?? false) {
-          // اگر دستگاه روشن است
+        if (deviceProvider.getButtonStates(widget.deviceId)[relay] ?? false) {
           _toggleCommand(relay, false);
         }
         setState(() {
-          schedule.offTriggered = true; // علامت‌گذاری به‌عنوان اجرا شده
+          schedule.offTriggered = true;
         });
         saveSchedules();
       } else if (schedule.offTime != null &&
           (now.hour != schedule.offTime!.hour ||
               now.minute != schedule.offTime!.minute)) {
-        // ریست پرچم وقتی زمان تغییر کرد
         if (schedule.offTriggered) {
           setState(() {
             schedule.offTriggered = false;
@@ -361,9 +356,9 @@ class _ManageDeviceState extends State<ManageDevice> {
                                         relaySchedules[relayNumber]!.onTime =
                                             picked;
                                         relaySchedules[relayNumber]!
-                                            .onTriggered = false; // ریست پرچم
+                                            .onTriggered = false;
                                       });
-                                      setState(() {}); // به‌روزرسانی UI اصلی
+                                      setState(() {});
                                       await saveSchedules();
                                     }
                                   },
@@ -392,9 +387,9 @@ class _ManageDeviceState extends State<ManageDevice> {
                                         relaySchedules[relayNumber]!.offTime =
                                             picked;
                                         relaySchedules[relayNumber]!
-                                            .offTriggered = false; // ریست پرچم
+                                            .offTriggered = false;
                                       });
-                                      setState(() {}); // به‌روزرسانی UI اصلی
+                                      setState(() {});
                                       await saveSchedules();
                                     }
                                   },
@@ -413,6 +408,10 @@ class _ManageDeviceState extends State<ManageDevice> {
                                           null;
                                       relaySchedules[relayNumber]!.offTime =
                                           null;
+                                      relaySchedules[relayNumber]!.onTriggered =
+                                          false;
+                                      relaySchedules[relayNumber]!
+                                          .offTriggered = false;
                                     });
                                     saveSchedules();
                                     Navigator.pop(context);
@@ -517,63 +516,90 @@ class _ManageDeviceState extends State<ManageDevice> {
     );
   }
 
-  void _showSnackBar(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  @override
+  void dispose() {
+    _serialSubscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final deviceProvider = Provider.of<DeviceProvider>(context);
+    _updateSmartDevices(deviceProvider);
+
     final double screenWidth = MediaQuery.of(context).size.width;
     int crossAxisCount = screenWidth > 600 ? 4 : 2;
     double childAspectRatio = screenWidth > 600 ? 1 / 1.5 : 1 / 1.3;
 
-    return MaterialApp(
-      locale: const Locale("fa", ""),
-      localizationsDelegates: AppLocalization.localizationsDelegates,
-      supportedLocales: AppLocalization.supportedLocales,
-      home: Scaffold(
-        appBar: AppBar(title: Text("مدیریت دستگاه ${widget.deviceId}")),
-        body: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: ListView(
-            children: [
-              const SizedBox(height: 16.0),
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: screenWidth > 600 ? 50 : 25,
-                  vertical: screenWidth > 600 ? 30 : 25,
-                ),
-                child: GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: mySmartDevices.length,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: crossAxisCount,
-                    childAspectRatio: childAspectRatio,
-                    mainAxisSpacing: 10,
-                    crossAxisSpacing: 10,
-                  ),
-                  itemBuilder: (context, index) {
-                    return SmartDeviceBox(
-                      key: Key(index.toString()),
-                      smartDeviceName: mySmartDevices[index][0],
-                      iconPath: mySmartDevices[index][1],
-                      powerOn: buttonStates[index + 1] ?? false,
-                      onChanged: (value) => _toggleCommand(index + 1, value),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 20),
-              ScheduleSettings(
-                smartDevices: mySmartDevices,
-                relaySchedules: relaySchedules,
-                onScheduleTap: _showScheduleBottomSheet,
-              ),
-            ],
+    final device = deviceProvider.getDeviceById(
+      widget.deviceId,
+      widget.itemName,
+    );
+    int poleCount =
+        device.isNotEmpty ? int.parse(device["poleCount"] ?? "1") : 0;
+
+    if (poleCount == 0) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text("مدیریت دستگاه ${widget.deviceId}"),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context),
           ),
+        ),
+        body: const Center(child: Text("دستگاهی برای نمایش وجود ندارد")),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text("مدیریت دستگاه ${widget.deviceId}"),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: ListView(
+          children: [
+            const SizedBox(height: 16.0),
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: screenWidth > 600 ? 50 : 25,
+                vertical: screenWidth > 600 ? 30 : 25,
+              ),
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: mySmartDevices.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  childAspectRatio: childAspectRatio,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                ),
+                itemBuilder: (context, index) {
+                  return SmartDeviceBox(
+                    key: Key('${widget.deviceId}_${index + 1}'),
+                    smartDeviceName: mySmartDevices[index][0],
+                    iconPath: mySmartDevices[index][1],
+                    powerOn: mySmartDevices[index][2],
+                    onChanged: (value) => _toggleCommand(index + 1, value),
+                    relayNumber: index + 1,
+                    deviceId: widget.deviceId,
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 20),
+            ScheduleSettings(
+              smartDevices: mySmartDevices,
+              relaySchedules: relaySchedules,
+              onScheduleTap: _showScheduleBottomSheet,
+            ),
+          ],
         ),
       ),
     );
