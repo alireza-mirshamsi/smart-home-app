@@ -26,7 +26,9 @@ class _TabScreenState extends State<TabScreen> with WidgetsBindingObserver {
   String deviceId = '';
   List<Map<String, String>> devices = [];
   bool _isLearning = false;
+  bool _isReceiving = false;
   StreamSubscription? _serialSubscription;
+  Timer? _receiveTimer;
 
   @override
   void initState() {
@@ -70,7 +72,11 @@ class _TabScreenState extends State<TabScreen> with WidgetsBindingObserver {
           debugPrint("پیام دریافتی (TabScreen): $message");
           setState(() {
             receivedMessages.add(message);
-            _processReceivedMessage(message);
+            if (_isReceiving) {
+              _processReceivedMessageForReceiver(message);
+            } else {
+              _processReceivedMessage(message);
+            }
           });
         }
       }
@@ -191,6 +197,84 @@ class _TabScreenState extends State<TabScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _processReceivedMessageForReceiver(String message) {
+    RegExp regex = RegExp(r"#(\d+)A(\d+)B(\d+)C(\d+)D(\d+)E(\d+)F");
+    Match? match = regex.firstMatch(message);
+    if (match != null) {
+      String deviceInfo = match.group(3)!;
+      String receivedDeviceId = match.group(4)!;
+
+      bool deviceExists = Provider.of<DeviceProvider>(context, listen: false)
+          .getDevices(widget.itemName)
+          .any((device) => device["deviceId"] == receivedDeviceId);
+
+      if (!deviceExists) {
+        String deviceName;
+        String deviceImage;
+        int poleCount = 0;
+        switch (deviceInfo) {
+          case "64":
+            deviceName = "کلید لمسی 4 پل";
+            deviceImage = "assets/4-pol.png";
+            poleCount = 4;
+            break;
+          case "63":
+            deviceName = "کلید لمسی 3 پل";
+            deviceImage = "assets/3-pol.png";
+            poleCount = 3;
+            break;
+          case "62":
+            deviceName = "کلید لمسی 2 پل";
+            deviceImage = "assets/2-pol.png";
+            poleCount = 2;
+            break;
+          case "61":
+            deviceName = "کلید لمسی 1 پل";
+            deviceImage = "assets/1-pol.png";
+            poleCount = 1;
+            break;
+          default:
+            deviceName = "دستگاه ناشناخته";
+            deviceImage = "assets/1-pol.png";
+            poleCount = 1;
+            break;
+        }
+
+        setState(() {
+          deviceId = receivedDeviceId;
+          Provider.of<DeviceProvider>(context, listen: false).addDevice({
+            "name": deviceName,
+            "deviceId": receivedDeviceId,
+            "image": deviceImage,
+            "poleCount": poleCount.toString(),
+            "deviceInfo": deviceInfo,
+          }, widget.itemName);
+          debugPrint("Device added: $deviceName with ID $receivedDeviceId");
+        });
+      } else {
+        debugPrint("Device with ID $receivedDeviceId already exists.");
+      }
+    }
+  }
+
+  void _startReceiving() {
+    setState(() {
+      _isReceiving = true;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("دریافت پیام‌ها به مدت 1 دقیقه آغاز شد")),
+    );
+    _receiveTimer = Timer(const Duration(minutes: 1), () {
+      setState(() {
+        _isReceiving = false;
+      });
+      debugPrint("Receiving mode disabled");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("دریافت پیام‌ها پایان یافت")),
+      );
+    });
+  }
+
   _sendLearnCommand() async {
     final connectionProvider = Provider.of<ConnectionProvider>(
       context,
@@ -242,6 +326,7 @@ class _TabScreenState extends State<TabScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     _serialSubscription?.cancel();
+    _receiveTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -529,9 +614,9 @@ class _TabScreenState extends State<TabScreen> with WidgetsBindingObserver {
                     context,
                     title: "گیرنده با واسطه",
                     icon: Icons.send,
-                    onPressed: _sendLearnCommand,
+                    onPressed: _startReceiving,
                     gradient: LinearGradient(
-                      colors: [Colors.green[700]!, Colors.green],
+                      colors: [Colors.purple[700]!, Colors.purple],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),

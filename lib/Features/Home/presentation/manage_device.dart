@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +10,7 @@ import 'package:smart_home_app/Core/Services/serial_service.dart';
 import 'package:smart_home_app/Core/Widget/schedule_settings.dart';
 import 'package:smart_home_app/Features/Home/smart_device_box.dart';
 import 'package:flutter_serial_communication/models/device_info.dart';
+import 'package:flutter_serial_communication/flutter_serial_communication.dart';
 
 class ManageDevice extends StatefulWidget {
   final String deviceId;
@@ -30,18 +30,72 @@ class ManageDevice extends StatefulWidget {
 
 class _ManageDeviceState extends State<ManageDevice>
     with WidgetsBindingObserver {
+  final _flutterSerialCommunicationPlugin = FlutterSerialCommunication();
   final SerialService _serialService = SerialService();
   Map<int, ScheduleModel> relaySchedules = {};
   final double horizontalPadding = 40;
   final double verticalPadding = 25;
   List<int> receivedBytesBuffer = [];
   List<String> receivedMessages = [];
+  List<String> sentMessages = [];
   List mySmartDevices = [];
   StreamSubscription? _serialSubscription;
+  bool _isSending = false; // برای جلوگیری از ارسال همزمان دستورات
 
   @override
   void initState() {
     super.initState();
+    // Listener for receiving messages
+    _flutterSerialCommunicationPlugin
+        .getSerialMessageListener()
+        .receiveBroadcastStream()
+        .listen((event) {
+          receivedBytesBuffer.addAll(event); // Add incoming bytes to buffer
+
+          // Check for end of message (e.g., #...F)
+          int endIndex = -1;
+          for (int i = 0; i < receivedBytesBuffer.length; i++) {
+            if (receivedBytesBuffer[i] == 0x46) {
+              // ASCII code for 'F'
+              int startIndex = -1;
+              for (int j = i - 1; j >= 0; j--) {
+                if (receivedBytesBuffer[j] == 0x23) {
+                  // ASCII code for '#'
+                  startIndex = j;
+                  endIndex = i;
+                  break;
+                }
+              }
+              if (startIndex != -1) break;
+            }
+          }
+
+          if (endIndex != -1) {
+            List<int> completeMessageBytes = receivedBytesBuffer.sublist(
+              0,
+              endIndex + 1,
+            );
+            String message;
+            try {
+              message = utf8.decode(completeMessageBytes); // Decode using UTF-8
+            } catch (e) {
+              message = "Error decoding: $e"; // Handle decoding errors
+            }
+
+            receivedBytesBuffer.removeRange(
+              0,
+              endIndex + 1,
+            ); // Clear the processed message from buffer
+
+            message = message.trim(); // Remove whitespace and line endings
+
+            setState(() {
+              receivedMessages.add(message);
+              _processReceivedMessage(message);
+            });
+            debugPrint("Received From Native: $message");
+          }
+        });
     WidgetsBinding.instance.addObserver(this);
     _initialize();
   }
@@ -53,7 +107,9 @@ class _ManageDeviceState extends State<ManageDevice>
 
     final deviceProvider = Provider.of<DeviceProvider>(context, listen: false);
     await deviceProvider.loadButtonStatesFromPrefs(widget.deviceId);
+    await deviceProvider.loadPacketNumbersFromPrefs(widget.deviceId);
     _updateSmartDevices(deviceProvider);
+    _setupSerialListener();
   }
 
   @override
@@ -91,25 +147,44 @@ class _ManageDeviceState extends State<ManageDevice>
 
   void _setupSerialListener() {
     _serialSubscription?.cancel();
-    _serialSubscription = _serialService.getSerialMessages().listen((event) {
-      receivedBytesBuffer.addAll(event);
-      int endIndex = receivedBytesBuffer.indexOf(0x46);
-      if (endIndex != -1) {
-        int startIndex = receivedBytesBuffer.lastIndexOf(0x23, endIndex);
-        if (startIndex != -1) {
-          String message =
-              utf8
-                  .decode(receivedBytesBuffer.sublist(startIndex, endIndex + 1))
-                  .trim();
-          receivedBytesBuffer.removeRange(0, endIndex + 1);
-          debugPrint("پیام دریافتی (ManageDevice): $message");
-          setState(() {
-            receivedMessages.add(message);
-            _processReceivedMessage(message);
-          });
+    _serialSubscription = _serialService.getSerialMessages().listen(
+      (event) {
+        receivedBytesBuffer.addAll(event);
+        while (true) {
+          int endIndex = receivedBytesBuffer.indexOf(0x46); // 'F'
+          if (endIndex == -1) break;
+          int startIndex = receivedBytesBuffer.lastIndexOf(
+            0x23,
+            endIndex,
+          ); // '#'
+          if (startIndex == -1) break;
+
+          try {
+            String message =
+                utf8
+                    .decode(
+                      receivedBytesBuffer.sublist(startIndex, endIndex + 1),
+                    )
+                    .trim();
+            receivedBytesBuffer.removeRange(0, endIndex + 1);
+            debugPrint("پیام دریافتی (ManageDevice): $message");
+            setState(() {
+              receivedMessages.add(message);
+              if (receivedMessages.length > 10) {
+                receivedMessages.removeAt(0);
+              }
+              _processReceivedMessage(message);
+            });
+          } catch (e) {
+            debugPrint("خطا در رمزگشایی پیام: $e");
+            receivedBytesBuffer.removeRange(0, endIndex + 1);
+          }
         }
-      }
-    });
+      },
+      onError: (error) {
+        debugPrint("خطا در دریافت پیام سریال: $error");
+      },
+    );
   }
 
   Future<void> _reconnectIfNeeded() async {
@@ -161,7 +236,12 @@ class _ManageDeviceState extends State<ManageDevice>
     }
   }
 
-  void _toggleCommand(int buttonNumber, bool newValue) async {
+  Future<void> _toggleCommand(int buttonNumber, bool newValue) async {
+    if (_isSending) {
+      debugPrint("ارسال دستور در حال انجام است، لطفاً منتظر بمانید...");
+      return;
+    }
+
     final connectionProvider = Provider.of<ConnectionProvider>(
       context,
       listen: false,
@@ -171,42 +251,85 @@ class _ManageDeviceState extends State<ManageDevice>
         context,
       ).showSnackBar(const SnackBar(content: Text('دستگاه متصل نیست')));
       await _reconnectIfNeeded();
-      if (!connectionProvider.isConnected) return;
+      if (!connectionProvider.isConnected) {
+        debugPrint("اتصال برقرار نشد، ارسال دستور لغو شد.");
+        return;
+      }
     }
 
-    String stateDigit = newValue ? "1" : "0";
-    String command =
-        "#${stateDigit}A${buttonNumber}B${widget.deviceInfo}C7D${widget.deviceId}E${Random().nextInt(10000)}F\n";
-    debugPrint("دستور ارسالی (ManageDevice): $command");
-    bool sent = await _serialService.write(command);
-    if (sent) {
-      debugPrint("دستور با موفقیت ارسال شد (ManageDevice)");
-      Provider.of<DeviceProvider>(
+    _isSending = true;
+    try {
+      final deviceProvider = Provider.of<DeviceProvider>(
         context,
         listen: false,
-      ).updateButtonState(widget.deviceId, buttonNumber, newValue);
-      setState(() {
-        mySmartDevices[buttonNumber - 1][2] = newValue;
-        if (relaySchedules.containsKey(buttonNumber)) {
-          if (newValue && relaySchedules[buttonNumber]!.onTime != null) {
-            relaySchedules[buttonNumber]!.onTriggered = true;
-          } else if (!newValue &&
-              relaySchedules[buttonNumber]!.offTime != null) {
-            relaySchedules[buttonNumber]!.offTriggered = true;
+      );
+      int lastPacketNumber = deviceProvider.getLastPacketNumber(
+        widget.deviceId,
+        buttonNumber,
+      );
+      int newPacketNumber = (lastPacketNumber + 1) % 10000;
+
+      String stateDigit = newValue ? "1" : "0";
+      String command =
+          "#${stateDigit}A${buttonNumber}B${widget.deviceInfo}C7D${widget.deviceId}E${newPacketNumber}F\n";
+      debugPrint("دستور ارسالی (ManageDevice): $command");
+
+      bool sent = await _serialService
+          .write(command)
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              debugPrint("مهلت زمانی ارسال دستور به پایان رسید.");
+              return false;
+            },
+          );
+
+      if (sent) {
+        debugPrint("دستور با موفقیت ارسال شد (ManageDevice)");
+        deviceProvider.updateLastPacketNumber(
+          widget.deviceId,
+          buttonNumber,
+          newPacketNumber,
+        );
+        setState(() {
+          sentMessages.add(command.trim());
+          if (sentMessages.length > 10) {
+            sentMessages.removeAt(0);
           }
-        }
-      });
-      await saveSchedules();
-    } else {
-      debugPrint("خطا در ارسال دستور (ManageDevice)");
+          deviceProvider.updateButtonState(
+            widget.deviceId,
+            buttonNumber,
+            newValue,
+          );
+          mySmartDevices[buttonNumber - 1][2] = newValue;
+          if (relaySchedules.containsKey(buttonNumber)) {
+            if (newValue && relaySchedules[buttonNumber]!.onTime != null) {
+              relaySchedules[buttonNumber]!.onTriggered = true;
+            } else if (!newValue &&
+                relaySchedules[buttonNumber]!.offTime != null) {
+              relaySchedules[buttonNumber]!.offTriggered = true;
+            }
+          }
+        });
+        await saveSchedules();
+      } else {
+        debugPrint("خطا در ارسال دستور (ManageDevice)");
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('خطا در ارسال دستور')));
+      }
+    } catch (e) {
+      debugPrint("خطای غیرمنتظره در ارسال دستور: $e");
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('خطا در ارسال دستور')));
+      ).showSnackBar(SnackBar(content: Text('خطای غیرمنتظره: $e')));
+    } finally {
+      _isSending = false;
     }
   }
 
   void _processReceivedMessage(String message) {
-    RegExp regex = RegExp(r"#(\d)A(\d+)B(\d+)C(\d+)D(\d+)E(\d+)F");
+    RegExp regex = RegExp(r"#(\d)A(\d+)B(\d+)C(\d+)D([^E]+)E(\d+)F");
     Match? match = regex.firstMatch(message);
     if (match != null && match.group(4) == widget.deviceId) {
       bool newState = match.group(1) == "1";
@@ -221,6 +344,8 @@ class _ManageDeviceState extends State<ManageDevice>
       setState(() {
         mySmartDevices[relayNumber - 1][2] = newState;
       });
+    } else {
+      debugPrint("پیام با الگو یا deviceId مطابقت ندارد: $message");
     }
   }
 
@@ -591,6 +716,116 @@ class _ManageDeviceState extends State<ManageDevice>
                     deviceId: widget.deviceId,
                   );
                 },
+              ),
+            ),
+            const SizedBox(height: 20),
+            // نمایش پیام‌های دریافتی
+            Container(
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(12.0),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "پیام‌های دریافتی:",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 100,
+                    child:
+                        receivedMessages.isEmpty
+                            ? const Text(
+                              "هیچ پیامی دریافت نشده است",
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black54,
+                              ),
+                            )
+                            : ListView.builder(
+                              itemCount: receivedMessages.length,
+                              itemBuilder: (context, index) {
+                                return Text(
+                                  receivedMessages[index],
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.black54,
+                                    height: 1.5,
+                                  ),
+                                );
+                              },
+                            ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            // نمایش پیام‌های ارسالی
+            Container(
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                borderRadius: BorderRadius.circular(12.0),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "پیام‌های ارسالی:",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 100,
+                    child:
+                        sentMessages.isEmpty
+                            ? const Text(
+                              "هیچ پیامی ارسال نشده است",
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black54,
+                              ),
+                            )
+                            : ListView.builder(
+                              itemCount: sentMessages.length,
+                              itemBuilder: (context, index) {
+                                return Text(
+                                  sentMessages[index],
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.black54,
+                                    height: 1.5,
+                                  ),
+                                );
+                              },
+                            ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 20),
