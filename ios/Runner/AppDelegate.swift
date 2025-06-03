@@ -8,6 +8,14 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    [FlutterForegroundTaskPlugin setPluginRegistrantCallback:registerPlugins];
+    if (@available(iOS 10.0, *)) {
+      [UNUserNotificationCenter currentNotificationCenter].delegate = (id<UNUserNotificationCenterDelegate>) self;
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
+}
+
+void registerPlugins(NSObject<FlutterPluginRegistry>* registry) {
+  [GeneratedPluginRegistrant registerWithRegistry:registry];
 }

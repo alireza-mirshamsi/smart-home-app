@@ -271,7 +271,7 @@ class _ManageDeviceState extends State<ManageDevice>
 
       String stateDigit = newValue ? "1" : "0";
       String command =
-          "#${stateDigit}A${buttonNumber}B${widget.deviceInfo}C7D${widget.deviceId}E${newPacketNumber}F\n";
+          "#${stateDigit}A${buttonNumber}B7C7D${widget.deviceId}E${newPacketNumber}F\n";
       debugPrint("دستور ارسالی (ManageDevice): $command");
 
       bool sent = await _serialService

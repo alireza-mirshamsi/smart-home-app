@@ -6,10 +6,12 @@ import 'package:smart_home_app/Core/Services/theme_provider.dart';
 import 'package:smart_home_app/Core/config/app_theme.dart';
 import 'package:smart_home_app/Core/config/localization.dart';
 import 'package:smart_home_app/Features/Home/presentation/home_screen.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  
+  FlutterForegroundTask.initCommunicationPort();
+
   runApp(
     MultiProvider(
       providers: [

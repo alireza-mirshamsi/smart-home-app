@@ -8,6 +8,7 @@ import 'package:smart_home_app/Core/Services/device_provider.dart';
 import 'package:smart_home_app/Core/Services/serial_service.dart';
 import 'package:smart_home_app/Core/Services/theme_provider.dart';
 import 'package:smart_home_app/Features/Home/presentation/manage_device.dart';
+import 'package:smart_home_app/Features/Home/presentation/gas_sensor_page.dart';
 import 'package:flutter_serial_communication/models/device_info.dart';
 
 class TabScreen extends StatefulWidget {
@@ -143,56 +144,76 @@ class _TabScreenState extends State<TabScreen> with WidgetsBindingObserver {
       if (_isLearning) {
         String deviceName;
         String deviceImage;
-        int poleCount = 0;
-        switch (deviceInfo) {
-          case "64":
-            deviceName = "کلید لمسی 4 پل";
-            deviceImage = "assets/4-pol.png";
-            poleCount = 4;
-            break;
-          case "63":
-            deviceName = "کلید لمسی 3 پل";
-            deviceImage = "assets/3-pol.png";
-            poleCount = 3;
-            break;
-          case "62":
-            deviceName = "کلید لمسی 2 پل";
-            deviceImage = "assets/2-pol.png";
-            poleCount = 2;
-            break;
-          case "61":
-            deviceName = "کلید لمسی 1 پل";
-            deviceImage = "assets/1-pol.png";
-            poleCount = 1;
-            break;
-          default:
-            deviceName = "دستگاه ناشناخته";
-            deviceImage = "assets/1-pol.png";
-            poleCount = 1;
-            break;
-        }
-
-        setState(() {
-          deviceId = receivedDeviceId;
-          Provider.of<DeviceProvider>(context, listen: false).addDevice({
+        Map<String, String> deviceData;
+        if (deviceInfo == "12") {
+          deviceName = "گاز";
+          deviceImage = "assets/sensor-gaz.png";
+          deviceData = {
+            "name": deviceName,
+            "deviceId": stateCode, // Use stateCode as deviceId for gas sensor
+            "image": deviceImage,
+            "deviceInfo": deviceInfo,
+          };
+        } else {
+          int poleCount = 0;
+          switch (deviceInfo) {
+            case "64":
+              deviceName = "کلید لمسی 4 پل";
+              deviceImage = "assets/4-pol.png";
+              poleCount = 4;
+              break;
+            case "63":
+              deviceName = "کلید لمسی 3 پل";
+              deviceImage = "assets/3-pol.png";
+              poleCount = 3;
+              break;
+            case "62":
+              deviceName = "کلید لمسی 2 پل";
+              deviceImage = "assets/2-pol.png";
+              poleCount = 2;
+              break;
+            case "61":
+              deviceName = "کلید لمسی 1 پل";
+              deviceImage = "assets/1-pol.png";
+              poleCount = 1;
+              break;
+            default:
+              deviceName = "دستگاه ناشناخته";
+              deviceImage = "assets/1-pol.png";
+              poleCount = 1;
+              break;
+          }
+          deviceData = {
             "name": deviceName,
             "deviceId": receivedDeviceId,
             "image": deviceImage,
             "poleCount": poleCount.toString(),
             "deviceInfo": deviceInfo,
-          }, widget.itemName);
-          debugPrint("Device added: $deviceName with ID $receivedDeviceId");
+          };
+        }
+
+        setState(() {
+          deviceId = deviceInfo == "12" ? stateCode : receivedDeviceId;
+          Provider.of<DeviceProvider>(
+            context,
+            listen: false,
+          ).addDevice(deviceData, widget.itemName);
+          debugPrint(
+            "Device added: $deviceName with ID ${deviceData["deviceId"]}",
+          );
         });
       } else {
-        bool newState = stateCode == "1";
-        int relayNumber = int.parse(buttonCode);
-        Provider.of<DeviceProvider>(
-          context,
-          listen: false,
-        ).updateButtonState(receivedDeviceId, relayNumber, newState);
-        debugPrint(
-          "وضعیت تاچ به‌روزرسانی شد: $receivedDeviceId, رله $relayNumber, حالت $newState",
-        );
+        if (deviceInfo != "12") {
+          bool newState = stateCode == "1";
+          int relayNumber = int.parse(buttonCode);
+          Provider.of<DeviceProvider>(
+            context,
+            listen: false,
+          ).updateButtonState(receivedDeviceId, relayNumber, newState);
+          debugPrint(
+            "وضعیت تاچ به‌روزرسانی شد: $receivedDeviceId, رله $relayNumber, حالت $newState",
+          );
+        }
       }
     }
   }
@@ -201,58 +222,83 @@ class _TabScreenState extends State<TabScreen> with WidgetsBindingObserver {
     RegExp regex = RegExp(r"#(\d+)A(\d+)B(\d+)C(\d+)D(\d+)E(\d+)F");
     Match? match = regex.firstMatch(message);
     if (match != null) {
+      String stateCode = match.group(1)!;
       String deviceInfo = match.group(3)!;
       String receivedDeviceId = match.group(4)!;
 
       bool deviceExists = Provider.of<DeviceProvider>(context, listen: false)
           .getDevices(widget.itemName)
-          .any((device) => device["deviceId"] == receivedDeviceId);
+          .any(
+            (device) =>
+                device["deviceId"] ==
+                (deviceInfo == "12" ? stateCode : receivedDeviceId),
+          );
 
       if (!deviceExists) {
         String deviceName;
         String deviceImage;
-        int poleCount = 0;
-        switch (deviceInfo) {
-          case "64":
-            deviceName = "کلید لمسی 4 پل";
-            deviceImage = "assets/4-pol.png";
-            poleCount = 4;
-            break;
-          case "63":
-            deviceName = "کلید لمسی 3 پل";
-            deviceImage = "assets/3-pol.png";
-            poleCount = 3;
-            break;
-          case "62":
-            deviceName = "کلید لمسی 2 پل";
-            deviceImage = "assets/2-pol.png";
-            poleCount = 2;
-            break;
-          case "61":
-            deviceName = "کلید لمسی 1 پل";
-            deviceImage = "assets/1-pol.png";
-            poleCount = 1;
-            break;
-          default:
-            deviceName = "دستگاه ناشناخته";
-            deviceImage = "assets/1-pol.png";
-            poleCount = 1;
-            break;
-        }
-
-        setState(() {
-          deviceId = receivedDeviceId;
-          Provider.of<DeviceProvider>(context, listen: false).addDevice({
+        Map<String, String> deviceData;
+        if (deviceInfo == "12") {
+          deviceName = "گاز";
+          deviceImage = "assets/sensor-gaz.png";
+          deviceData = {
+            "name": deviceName,
+            "deviceId": stateCode, // Use stateCode as deviceId for gas sensor
+            "image": deviceImage,
+            "deviceInfo": deviceInfo,
+          };
+        } else {
+          int poleCount = 0;
+          switch (deviceInfo) {
+            case "64":
+              deviceName = "کلید لمسی 4 پل";
+              deviceImage = "assets/4-pol.png";
+              poleCount = 4;
+              break;
+            case "63":
+              deviceName = "کلید لمسی 3 پل";
+              deviceImage = "assets/3-pol.png";
+              poleCount = 3;
+              break;
+            case "62":
+              deviceName = "کلید لمسی 2 پل";
+              deviceImage = "assets/2-pol.png";
+              poleCount = 2;
+              break;
+            case "61":
+              deviceName = "کلید لمسی 1 پل";
+              deviceImage = "assets/1-pol.png";
+              poleCount = 1;
+              break;
+            default:
+              deviceName = "دستگاه ناشناخته";
+              deviceImage = "assets/1-pol.png";
+              poleCount = 1;
+              break;
+          }
+          deviceData = {
             "name": deviceName,
             "deviceId": receivedDeviceId,
             "image": deviceImage,
             "poleCount": poleCount.toString(),
             "deviceInfo": deviceInfo,
-          }, widget.itemName);
-          debugPrint("Device added: $deviceName with ID $receivedDeviceId");
+          };
+        }
+
+        setState(() {
+          deviceId = deviceInfo == "12" ? stateCode : receivedDeviceId;
+          Provider.of<DeviceProvider>(
+            context,
+            listen: false,
+          ).addDevice(deviceData, widget.itemName);
+          debugPrint(
+            "Device added: $deviceName with ID ${deviceData["deviceId"]}",
+          );
         });
       } else {
-        debugPrint("Device with ID $receivedDeviceId already exists.");
+        debugPrint(
+          "Device with ID ${deviceInfo == "12" ? stateCode : receivedDeviceId} already exists.",
+        );
       }
     }
   }
@@ -504,17 +550,30 @@ class _TabScreenState extends State<TabScreen> with WidgetsBindingObserver {
                               deviceProvider.getDevices(widget.itemName)[index];
                           return GestureDetector(
                             onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder:
-                                      (context) => ManageDevice(
-                                        deviceId: device["deviceId"]!,
-                                        deviceInfo: device["deviceInfo"]!,
-                                        itemName: widget.itemName,
-                                      ),
-                                ),
-                              );
+                              if (device["deviceInfo"] == "12") {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder:
+                                        (context) => GasSensorPage(
+                                          deviceId: device["deviceId"]!,
+                                          itemName: widget.itemName,
+                                        ),
+                                  ),
+                                );
+                              } else {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder:
+                                        (context) => ManageDevice(
+                                          deviceId: device["deviceId"]!,
+                                          deviceInfo: device["deviceInfo"]!,
+                                          itemName: widget.itemName,
+                                        ),
+                                  ),
+                                );
+                              }
                             },
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 300),
